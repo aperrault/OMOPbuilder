@@ -1,106 +1,91 @@
-# All of Us Cohort Builder Agent 🧬
+# 🧬 All of Us Cohort Scout
 
-A "Local First" AI agent that generates accurate, syntax-validated SQL queries for the NIH *All of Us* Researcher Workbench.
+**Stop wasting computation credits on syntax errors.**
 
-**Why use this?**
+Cohort Scout is an AI agent that generates, validates, and refines SQL queries for the NIH *All of Us* Researcher Workbench. It uses a mock database to ensure your code works.
 
-  * **Save Credits:** The agent validates SQL syntax locally *before* you spend computation credits in the cloud.
-  * **No Hallucinations:** It uses a local simulation of the OMOP database to verify that tables and columns actually exist.
-  * **Smart Vocab:** Can look up *real* Concept IDs (e.g., SNOMED codes for diseases) locally if you provide the vocabulary files.
-  * **Privacy First:** Your research ideas stay local (or in your private Colab); no patient data is ever touched.
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue) ![DuckDB](https://img.shields.io/badge/Database-DuckDB-yellow) ![OMOP](https://img.shields.io/badge/Standard-OMOP%20v5.3-green)
+
+## ⚡️ Why use this?
+
+* **🔒 Privacy First:** No patient data is ever accessed or needed.
+* **🧠 "Thinking" Agent:** Unlike standard chatbots, this agent uses a feedback loop. If it writes bad SQL, the local database catches the error, and the agent fixes itself automatically.
+* **📚 Smart Vocabulary:** Can look up *real* standard Concept IDs (SNOMED, RxNorm, LOINC) to ensure you aren't guessing codes.
+
+## 🛠️ Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone [https://github.com/your-username/aou-cohort-scout.git](https://github.com/your-username/aou-cohort-scout.git)
+    cd aou-cohort-scout
+    ```
+
+2.  **Install requirements:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3.  **Get a Gemini API Key:**
+    * Get a free key from [Google AI Studio](https://aistudio.google.com/).
+    * Open `core.py` and paste your key:
+        ```python
+        genai.configure(api_key="PASTE_YOUR_KEY_HERE")
+        ```
+
+## 🚀 Usage
+
+**Basic Run:**
+Just run the script. It comes pre-loaded with a test query.
+```bash
+python core.py
+````
+
+**Custom Query:**
+Edit the bottom of `core.py` to describe your specific cohort:
+
+```python
+if __name__ == "__main__":
+    query = agent_loop("Find Hispanic women over 60 with Type 2 Diabetes who have never taken Metformin.")
+    print(query)
+```
 
 -----
 
-## 🚀 Quick Start (Google Colab / Jupyter)
+## 💎 Pro Mode: Enable "Precise Lookups"
 
-1.  **Get a Gemini API Key:**
+By default, the agent runs in **Fuzzy Mode**, creating queries that match text strings (e.g., `LIKE '%Diabetes%'`). This is safe but slower.
 
-      * Go to [Google AI Studio](https://aistudio.google.com/).
-      * Create a free API key.
+To enable **Precise Mode** (where the agent finds exact IDs like `201826`), you need the OMOP Vocabulary:
 
-2.  **Install Requirements:**
+1.  Go to [Athena OHDSI](https://athena.ohdsi.org/vocabulary/list).
+2.  Log in and select these vocabularies: **SNOMED**, **RxNorm**, **LOINC**, **PPI** (All of Us Surveys) or any other vocabularies your query might need.
+3.  Download and unzip the bundle.
+4.  Copy the file `CONCEPT.csv` into the root folder of this project.
 
-    ```bash
-    pip install google-generativeai duckdb
-    ```
+**That's it.** The tool will detect the file automatically:
 
-3.  **Run the Agent:**
-    Open `core.py`, paste your API key where indicated, and run:
-
-    ```python
-    query = agent_loop("Find Hispanic women over age 50 with Type 2 Diabetes")
-    print(query)
-    ```
+> `✅ Vocabulary Loaded! Agent uses 'Precise Mode'.`
 
 -----
 
 ## 🧠 How It Works
 
-This tool uses an **Agentic Loop** to ensure code quality:
-
 1.  **User Request:** You describe your cohort in plain English.
-2.  **Drafting:** The AI (Gemini) drafts a SQL query.
-3.  **Local Validation:** The agent spins up a temporary **DuckDB** database (mocking the *All of Us* OMOP schema) and tries to "run" the query.
-4.  **Self-Correction:**
-      * *If the query fails (e.g., "Column 'age' does not exist"):* The agent reads the error, fixes it (changing 'age' to 'year\_of\_birth'), and tries again.
-      * *If the query works:* It outputs the final SQL for you to copy into the Workbench.
+2.  **Drafting:** The Agent (Gemini 3 by default) converts this into a BigQuery SQL draft.
+3.  **Simulation:** The tool spins up an in-memory **DuckDB** database that mimics the *All of Us* OMOP schema.
+4.  **Validation:** It tries to "compile" the query.
+      * *If it fails:* The database returns the error (e.g., `Column 'age' not found`). The Agent reads the error and rewrites the code.
+      * *If it succeeds:* It outputs the clean SQL.
+5.  **Output:** You copy the final SQL into your Jupyter Notebook in the Researcher Workbench.
 
------
+## ⚠️ Limitations
 
-## 🔌 Advanced Setup: "Precise Mode" (Recommended)
+  * **Mock Data:** The local database contains the *vocabulary* (concepts) but **zero patient data**. Running the query locally will return an empty result set. This is intentional. The goal is to generate *valid code*, not *results*.
+  * **Dialects:** The tool uses a middleware layer to translate BigQuery-specific functions (like `EXTRACT(YEAR from CURRENT_DATE())`) into DuckDB logic for validation. It is 99% accurate, but extremely niche BigQuery functions might flag false errors.
 
-By default, the agent runs in **Fuzzy Mode**. It writes SQL that searches for text strings (e.g., `WHERE concept_name LIKE '%Diabetes%'`). This is safe but slower to run in the Workbench.
+## License
 
-To enable **Precise Mode** (where the agent looks up exact Concept IDs like `201826`), follow these steps:
+MIT License. Free to use for all researchers.
 
-### 1\. Download Vocabulary from Athena
-
-Go to [athena.ohdsi.org](https://athena.ohdsi.org) and download the **Standard OMOP Vocabulary**.
-
-  * **Must Select:** `SNOMED`, `RxNorm`, `LOINC`, `PPI` (AllOfUs Surveys).
-  * *Note:* You do not need CPT4 unless you are researching procedural billing codes.
-
-### 2\. Extract and Load
-
-Unzip the download. You should see a file named `CONCEPT.csv`. Place this folder in your project directory.
-
-### 3\. Update the Script
-
-In `core.py`, point the agent to your folder:
-
-```python
-# Initialize DB with your vocabulary path
-db = AllOfUsMockDB(vocab_path="./athena_download_folder")
 ```
-
-**Now, when you ask for "Diabetes", the Agent will:**
-
-1.  Pause.
-2.  Search your local `CONCEPT.csv` for "Diabetes".
-3.  Find ID `201826` (Standard SNOMED code).
-4.  Write the query: `WHERE condition_concept_id = 201826`.
-
------
-
-## 📂 Project Structure
-
-  * `core.py` - The main script. Contains the Gemini API logic and the Agent Loop.
-  * `AllOfUsMockDB.py` - The simulation engine. Uses DuckDB to create empty OMOP tables, load vocabulary, and handle syntax validation.
-
------
-
-## 🛠 Troubleshooting
-
-**"I'm getting a Syntax Error regarding `REGEXP_CONTAINS`"**
-
-  * Ensure you are using the latest version of DuckDB (`pip install -U duckdb`).
-
-**"The Agent keeps trying to use 'age'"**
-
-  * The Agent is trained to prefer `year_of_birth` (standard OMOP), but sometimes slips. The validation loop usually catches this. If it persists, try being more specific in your prompt: "Calculate age from year\_of\_birth."
-
------
-
-## 📜 License
-
-MIT License. Free to use for any *All of Us* researcher.
+```

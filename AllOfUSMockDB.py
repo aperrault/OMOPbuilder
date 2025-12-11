@@ -52,12 +52,6 @@ class AllOfUsMockDB:
             );
         """)
 
-        # This allows the Agent to use REGEXP_CONTAINS (BigQuery) and DuckDB will understand it.
-        try:
-            self.con.execute("CREATE MACRO REGEXP_CONTAINS(text, pattern) AS regexp_matches(text, pattern);")
-        except:
-            pass # Macro might already exist
-
     def _load_vocab(self, file_path):
         print(f"📂 Loading Vocabulary from {file_path}...")
         try:
@@ -73,9 +67,23 @@ class AllOfUsMockDB:
             print(f"❌ Failed to load vocab: {e}")
 
     def validate_query(self, sql):
-        """Runs EXPLAIN to check SQL syntax without processing data."""
+        """
+        Runs EXPLAIN to check syntax.
+        Includes 'Middleware' cleaning to bridge BigQuery vs DuckDB dialects.
+        """
+        # --- MIDDLEWARE CLEANING ---
+        # 1. Handle Backticks: BigQuery loves `table`, DuckDB prefers "table" or simple table
+        clean_sql = sql.replace("`", '"') 
+        
+        # 2. Handle Date Functions: BigQuery uses CURRENT_DATE(), DuckDB uses CURRENT_DATE
+        clean_sql = clean_sql.replace("CURRENT_DATE()", "CURRENT_DATE")
+        
+        # 3. Handle Timestamp functions if they appear
+        clean_sql = clean_sql.replace("CURRENT_TIMESTAMP()", "CURRENT_TIMESTAMP")
+        # ---------------------------
+
         try:
-            self.con.execute(f"EXPLAIN {sql}")
+            self.con.execute(f"EXPLAIN {clean_sql}")
             return True, "Syntax Valid"
         except Exception as e:
             return False, str(e)
