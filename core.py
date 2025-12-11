@@ -1,126 +1,210 @@
 import google.generativeai as genai
 from AllOfUSMockDB import AllOfUsMockDB
+import os
+import sys
+import logging
+import datetime
+import json
 import re
 
-# SETUP
-genai.configure(api_key="AIzaSyCGB_53aLA0begX2_U7-VkvlsrBxYdbWbs") # Replace with your key
-model = genai.GenerativeModel('gemini-3-pro-preview')
-
-# Initialize DB (Pass path to Athena folder if you have it, else None)
-# db = AllOfUsMockDB(vocab_path="./athena_vocab_folder") 
+# Initialize DB globally
 db = AllOfUsMockDB() 
 
-def build_system_prompt(vocab_loaded):
-    """Dynamically builds the instructions based on available tools."""
+def setup_logger():
+    """Sets up a file logger for the agent session."""
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
     
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = f"logs/agent_trace_{timestamp}.log"
+    
+    logger = logging.getLogger(f"AgentLogger_{timestamp}")
+    logger.setLevel(logging.INFO)
+    
+    # File Handler
+    fh = logging.FileHandler(log_filename, encoding='utf-8')
+    fh.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s\n%(message)s\n' + '-'*50)
+    fh.setFormatter(formatter)
+    
+    logger.addHandler(fh)
+    return logger, log_filename
+
+def build_system_prompt(vocab_loaded):
     base_prompt = """
     You are an expert Data Scientist for the NIH 'All of Us' program.
     Your goal is to generate BigQuery SQL (OMOP CDM v5.3) for a user's cohort request.
     
     SCHEMA:
     - person (person_id, year_of_birth, gender_concept_id, race_concept_id)
-    - condition_occurrence (person_id, condition_concept_id)
-    - drug_exposure (person_id, drug_concept_id)
+    - condition_occurrence (person_id, condition_concept_id, condition_start_date)
+    - drug_exposure (person_id, drug_concept_id, drug_exposure_start_date)
     - measurement (person_id, measurement_concept_id, value_as_number)
     - concept (concept_id, concept_name, domain_id)
-    
-    PROTOCOL:
-    You must think step-by-step.
+    - concept_ancestor (ancestor_concept_id, descendant_concept_id) -- Use this to find all specific drugs/conditions
     """
     
     if vocab_loaded:
-        # Precise Mode Instructions
-        return base_prompt + """
-    MODE: PRECISE (Vocabulary Available)
-    1. Look up Concept IDs for Conditions and Drugs using "LOOKUP: term".
-    2. IMPORTANT: For Demographics, use these standard IDs if possible without lookup:
-       - Female: 8532
-       - Male: 8507
-       - Hispanic: 38003563
-    3. Once you have IDs, output the final SQL using: "SQL: SELECT ..."    """
+        return base_prompt + "\nMODE: PRECISE. Use 'LOOKUP: term' to find IDs. Use standard IDs (Female=8532) where possible."
     else:
-        # Fuzzy Mode Instructions
-        return base_prompt + """
-    MODE: FUZZY (No Vocabulary)
-    1. Do NOT guess Concept IDs.
-    2. Write SQL that joins the `concept` table and uses `REGEXP_CONTAINS(concept_name, '(?i)term')`.
-    3. Output the final SQL using: "SQL: SELECT ..."
-    """
+        return base_prompt + "\nMODE: FUZZY. Do NOT guess IDs. Use `REGEXP_CONTAINS(concept_name, '(?i)term')`."
 
-def agent_loop(user_request, max_turns=20):
+def agent_loop(user_request, max_turns=5):
+    # Lazy Config
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key: return "ERROR: GOOGLE_API_KEY missing."
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-3-pro-preview') 
+    
+    # Setup Logging
+    logger, log_file = setup_logger()
+    print(f"📝 Logging trace to: {log_file}")
+
     print(f"\n🚀 Starting Agent for: '{user_request}'\n")
     
+    system_prompt = build_system_prompt(db.vocab_loaded)
+    logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
+    logger.info(f"USER REQUEST:\n{user_request}")
+    
     history = [
-        {"role": "user", "parts": [f"{build_system_prompt(db.vocab_loaded)}\n\nUSER REQUEST: {user_request}"]}
+        {"role": "user", "parts": [f"{system_prompt}\n\nUSER REQUEST: {user_request}"]}
     ]
 
     for turn in range(max_turns):
-        # 1. Model Thinks
-        response = model.generate_content(history)
-        text = response.text.strip()
-        print(f"🤖 Agent: {text}")
+        print(f"🤖 Agent: ", end="", flush=True)
         
-        # 2. Check for Tool Use (LOOKUP)
-        if "LOOKUP:" in text:
-            # Find ALL lines that start with LOOKUP:
-            lines = text.split('\n')
-            lookup_results = []
-            
-            for line in lines:
-                if line.strip().startswith("LOOKUP:"):
-                    term = line.replace("LOOKUP:", "").strip()
-                    # Run the lookup
-                    res = db.lookup_code(term)
-                    lookup_results.append(f"Search '{term}': {res}")
-            
-            # Combine results into one block
-            final_result = "\n".join(lookup_results)
-            print(f"📚 Database Tool: \n{final_result}")
-            
-            history.append({"role": "model", "parts": [text]})
-            history.append({"role": "user", "parts": [f"TOOL RESULTS:\n{final_result}"]})
+        # Log History before sending
+        logger.info(f"TURN {turn+1} - HISTORY SENT:\n{json.dumps(history, indent=2)}")
         
-        # 3. Check for SQL Output
-        elif "SQL:" in text or "SELECT" in text:
-            # CLEANING: Remove "SQL:" prefix and standard markdown
-            clean_text = text.replace("SQL:", "").replace("```sql", "").replace("```", "").strip()
+        try:
+            response = model.generate_content(history)
             
-            # EXTRACTION: Find the start of the query
-            # This handles cases where the agent writes: "Here is the code: SELECT ..."
-            start_index = clean_text.find("SELECT")
-            if start_index != -1:
-                sql_candidate = clean_text[start_index:]
-            else:
-                sql_candidate = clean_text
-
-            # VALIDATION
-            print(f"   🔍 Validating SQL...") # Visual feedback
-            is_valid, error_msg = db.validate_query(sql_candidate)
-            
-            if is_valid:
-                print("\n✅ SUCCESS: Valid SQL generated.")
-                print("-" * 20)
-                return sql_candidate
-            else:
-                print(f"❌ VALIDATION ERROR: {error_msg}")
+            # Check if response was blocked or empty
+            if not response.parts:
+                logger.error(f"API BLOCKED: Finish Reason: {response.prompt_feedback}")
+                return "API Error: Response was blocked by safety filters."
                 
-                # FEEDBACK: Add the error to history so the agent fixes it
+            full_text = response.text
+            print(full_text)
+            
+            # Log Raw Response
+            logger.info(f"TURN {turn+1} - RAW RESPONSE:\n{full_text}")
+            
+        except Exception as e:
+            logger.error(f"API ERROR: {e}")
+            return f"\nAPI Error: {e}"
+
+        text = full_text.strip()
+        
+        # Tool: LOOKUP
+        if "LOOKUP:" in text:
+            print(f"\n📚 Database Tool: Running lookup...", end="", flush=True)
+            lines = text.split('\n')
+            results = []
+            lookup_commands = []
+            for line in lines:
+                if "LOOKUP:" in line:
+                    # Capture the term and aggressively strip markdown/quotes
+                    term = line.split("LOOKUP:")[1].strip().split("->")[0].strip("*`_\"' ")                   
+                    if term:
+                        res = db.lookup_code(term)
+                        results.append(f"Search '{term}': {res}")
+                        lookup_commands.append(line)
+            
+            final_result = "\n".join(results)
+            print(f"\r📚 Database Tool: Found {len(results)} results.") # Overwrite previous line
+            
+            # Log Tool Result
+            logger.info(f"TURN {turn+1} - TOOL RESULT:\n{final_result}")
+            
+            # IMPORTANT: Only append the LOOKUP commands to history, ignoring any hallucinated follow-up text
+            clean_model_text = "\n".join(lookup_commands)
+            history.append({"role": "model", "parts": [clean_model_text]})
+            history.append({"role": "user", "parts": [f"TOOL RESULTS:\n{final_result}"]})
+            continue
+
+        # Tool: SQL Validation
+        elif "SQL:" in text or "SELECT" in text:
+            # 1. Try to find a Markdown Code Block first (Most Robust)
+            # Looks for ```sql ... ``` or just ``` ... ```
+            match = re.search(r"```\w*\n(.*?)\n```", text, re.DOTALL)
+            
+            if match:
+                sql_candidate = match.group(1).strip()
+            else:
+                # 2. Fallback: Heuristic Extraction if no markdown found
+                # Look for the first occurrence of SELECT or WITH (case insensitive)
+                clean_text = text.replace("SQL:", "").strip()
+                
+                # Find start indices
+                match_select = re.search(r"\bSELECT\b", clean_text, re.IGNORECASE)
+                match_with = re.search(r"\bWITH\b", clean_text, re.IGNORECASE)
+                
+                start_index = -1
+                
+                # Determine which comes first (CTE 'WITH' or standard 'SELECT')
+                if match_select and match_with:
+                    start_index = min(match_select.start(), match_with.start())
+                elif match_select:
+                    start_index = match_select.start()
+                elif match_with:
+                    start_index = match_with.start()
+                
+                if start_index != -1:
+                    sql_candidate = clean_text[start_index:]
+                else:
+                    # If we still can't find code, verify failure but don't crash
+                    sql_candidate = clean_text
+
+            logger.info(f"TURN {turn+1} - EXTRACTED SQL:\n{sql_candidate}")
+            print(f"   🔍 Validating SQL...", end="", flush=True) 
+            
+            # --- ALWAYS CHECK CONCEPT IDs (Even if SQL is invalid) ---
+            id_report = db.check_concept_ids(sql_candidate)
+            # ---------------------------------------------------------
+
+            is_valid, error_msg = db.validate_query(sql_candidate)
+
+            if is_valid:
+                print(f"\r✅ SUCCESS: Valid SQL generated.      ") # Overwrite
+                
+                # Check if we are already in a verification loop
+                last_user_msg = history[-1]["parts"][0] if history else ""
+                is_verifying = "Now verifying Concept IDs" in last_user_msg
+
+                if is_verifying:
+                    print(f"\r✅ SUCCESS: SQL Verified.")
+                    print(f"\n{id_report}")
+                    logger.info(f"TURN {turn+1} - SUCCESS (Verified):\n{sql_candidate}")
+                    return sql_candidate
+
+                print(f"\r🔍 Verifying Concept IDs...")
+                print(f"\n{id_report}")
+                logger.info(f"TURN {turn+1} - ID CHECK:\n{id_report}")
+                
                 history.append({"role": "model", "parts": [text]})
                 history.append({
                     "role": "user", 
-                    "parts": [f"Database Error: {error_msg}. \nIMPORTANT: Ensure you are using standard BigQuery syntax. Return ONLY the corrected SQL."]
-                })       
-
+                    "parts": [f"SQL Validated. Now verifying Concept IDs:\n{id_report}\n\nIf these concepts are correct, output the SQL again. If any are incorrect (e.g. wrong domain or specific concept), please fix the SQL."]
+                })
+                continue
+            else:
+                print(f"\r❌ VALIDATION ERROR: {error_msg}")
+                print(f"\n{id_report}") # Show ID report even on error
+                logger.warning(f"TURN {turn+1} - VALIDATION ERROR:\n{error_msg}")
+                history.append({"role": "model", "parts": [text]})
+                history.append({
+                    "role": "user", 
+                    "parts": [f"Database Error: {error_msg}.\n\nAlso, here is a check on the Concept IDs you used:\n{id_report}\n\nIMPORTANT: Ensure you are using standard BigQuery syntax. Return ONLY the corrected SQL."]
+                })
+        
         else:
-            # Agent is just chatting? Nudge it.
             history.append({"role": "model", "parts": [text]})
             history.append({"role": "user", "parts": ["Please output a command: either 'LOOKUP: term' or 'SQL: query'."]})
 
     print(f"\n🛑 STOPPING: Reached maximum turn limit ({max_turns}).")
+    logger.error("STOPPING: Reached maximum turn limit.")
     return "Failed to generate valid SQL."
 
-# --- RUN IT ---
 if __name__ == "__main__":
-    final_query = agent_loop("Create a cohort of Type 2 Diabetes patients over age 50 who are new users of Metformin. Exclude any patients who had a diagnosis of Dementia or Chronic Kidney Disease (CKD) before their first Metformin prescription.")
-    print("-" * 20)
-    print(final_query)
+    pass
