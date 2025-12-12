@@ -87,3 +87,20 @@ sql_output = agent_loop(user_query)
 
 print("\n" + "="*20 + " FINAL SQL " + "="*20)
 print(sql_output)
+
+# @title 🔄 Refine SQL (Paste Error or Request Here)
+# Run this cell if you get an error in BigQuery or want to change the query.
+
+feedback = "Paste your error message or change request here" # @param {type:"string"}
+
+if feedback and feedback != "Paste your error message or change request here":
+    print(f"🚀 Sending feedback to agent: '{feedback}'")
+    print("-" * 50)
+    
+    # Continue the existing conversation
+    new_sql = core.agent_loop(feedback, is_continuation=True)
+    
+    print("\n" + "="*20 + " REVISED SQL " + "="*20)
+    print(new_sql)
+else:
+    print("⚠️ Please enter your feedback in the text box above.")

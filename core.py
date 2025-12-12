@@ -10,6 +10,9 @@ import re
 # Initialize DB globally
 db = AllOfUsMockDB() 
 
+# Global storage for the last session history
+last_history = []
+
 def setup_logger():
     """Sets up a file logger for the agent session."""
     if not os.path.exists('logs'):
@@ -54,7 +57,8 @@ def build_system_prompt(vocab_loaded):
     else:
         return base_prompt + "\nMODE: FUZZY. Do NOT guess IDs. Use `REGEXP_CONTAINS(concept_name, '(?i)term')`."
 
-def agent_loop(user_request, max_turns=5):
+def agent_loop(user_request, max_turns=5, is_continuation=False):
+    global last_history
     # Lazy Config
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return "ERROR: GOOGLE_API_KEY missing."
@@ -65,15 +69,20 @@ def agent_loop(user_request, max_turns=5):
     logger, log_file = setup_logger()
     print(f"📝 Logging trace to: {log_file}")
 
-    print(f"\n🚀 Starting Agent for: '{user_request}'\n")
-    
-    system_prompt = build_system_prompt(db.vocab_loaded)
-    logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
-    logger.info(f"USER REQUEST:\n{user_request}")
-    
-    history = [
-        {"role": "user", "parts": [f"{system_prompt}\n\nUSER REQUEST: {user_request}"]}
-    ]
+    if is_continuation and last_history:
+        print(f"\n🔄 Continuing Session with feedback: '{user_request}'\n")
+        history = last_history
+        # Append the user's feedback to the existing history
+        history.append({"role": "user", "parts": [f"USER FEEDBACK: {user_request}"]})
+    else:
+        print(f"\n🚀 Starting Agent for: '{user_request}'\n")
+        system_prompt = build_system_prompt(db.vocab_loaded)
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
+        logger.info(f"USER REQUEST:\n{user_request}")
+        
+        history = [
+            {"role": "user", "parts": [f"{system_prompt}\n\nUSER REQUEST: {user_request}"]}
+        ]
 
     for turn in range(max_turns):
         print(f"🤖 Agent: ", end="", flush=True)
@@ -181,6 +190,8 @@ def agent_loop(user_request, max_turns=5):
                     print(f"\r✅ SUCCESS: SQL Verified.")
                     print(f"\n{id_report}")
                     logger.info(f"TURN {turn+1} - SUCCESS (Verified):\n{sql_candidate}")
+                    # Save history for continuation
+                    last_history = history
                     return sql_candidate
 
                 print(f"\r🔍 Verifying Concept IDs...")
@@ -209,6 +220,8 @@ def agent_loop(user_request, max_turns=5):
 
     print(f"\n🛑 STOPPING: Reached maximum turn limit ({max_turns}).")
     logger.error("STOPPING: Reached maximum turn limit.")
+    # Save history even on failure to allow debugging/continuation
+    last_history = history
     return "Failed to generate valid SQL."
 
 if __name__ == "__main__":
