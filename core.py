@@ -31,19 +31,24 @@ def setup_logger():
     return logger, log_filename
 
 def build_system_prompt(vocab_loaded):
-    base_prompt = """
+    schema_desc = db.get_schema_description()
+    base_prompt = f"""
     You are an expert Data Scientist for the NIH 'All of Us' program.
     Your goal is to generate BigQuery SQL (OMOP CDM v5.3) for a user's cohort request.
     
     SCHEMA:
-    - person (person_id, year_of_birth, gender_concept_id, race_concept_id)
-    - condition_occurrence (person_id, condition_concept_id, condition_start_date)
-    - drug_exposure (person_id, drug_concept_id, drug_exposure_start_date)
-    - measurement (person_id, measurement_concept_id, value_as_number)
-    - concept (concept_id, concept_name, domain_id)
-    - concept_ancestor (ancestor_concept_id, descendant_concept_id) -- Use this to find all specific drugs/conditions
-    """
+{schema_desc}
     
+    RULES:
+    1. Do NOT use DATE_DIFF. Use simple subtraction: (date_2 - date_1) to get days.
+    2. Do NOT use DATE_ADD or DATE_SUB. They vary by dialect.
+    3. To add/subtract time, use operators: 
+       - Days: date_col - 30
+       - Years/Months: date_col - INTERVAL 1 YEAR
+    4. HIERARCHIES: ALWAYS use `concept_ancestor` for ALL clinical codes 
+       (Conditions, Drugs, Procedures, AND Measurements). 
+       Do not rely on lists of IDs found via lookup.
+    """    
     if vocab_loaded:
         return base_prompt + "\nMODE: PRECISE. Use 'LOOKUP: term' to find IDs. Use standard IDs (Female=8532) where possible."
     else:

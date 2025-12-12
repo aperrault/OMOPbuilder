@@ -37,17 +37,38 @@ except:
 
 os.environ['GOOGLE_API_KEY'] = api_key
 
-# 5. CHECK FOR PRECISE MODE (Conditional Instructions)
+# 5. CHECK FOR RESOURCES (Conditional Instructions)
+import glob
+
+# Check for Schema
+omop_files = glob.glob("OMOP_CDM_*.csv")
+if omop_files:
+    print(f"\n✅ SCHEMA DETECTED: {omop_files[0]}")
+else:
+    print("\n" + "="*55)
+    print("⚠️ SCHEMA DEFINITION MISSING")
+    print("To enable accurate schema validation:")
+    print("  1. Go to https://github.com/OHDSI/CommonDataModel/releases/tag/v5.3.1")
+    print("  2. Download 'OMOP_CDM_v5.3.1.zip' (Source code).")
+    print("  3. Unzip and find 'OMOP_CDM_v5_3_1.csv'.")
+    print("  4. Drag it into the 'aou_scout' folder (left sidebar).")
+    print("="*55)
+
+# Check for Vocabulary
 if os.path.exists("CONCEPT.csv"):
-    print("\n✅ PRECISE MODE: ACTIVE (Vocabulary Detected)")
+    if os.path.exists("CONCEPT_ANCESTOR.csv"):
+        print("\n✅ PRECISE MODE: ACTIVE (Vocabulary & Ancestors Detected)")
+    else:
+        print("\n⚠️ PARTIAL PRECISE MODE: CONCEPT.csv found, but CONCEPT_ANCESTOR.csv missing.")
+        print("   (Ancestor lookups will be disabled)")
 else:
     print("\n" + "="*55)
     print("⚠️ PRECISE MODE IS OFF (Running in Fuzzy/String Mode)")
     print("To enable precise lookup of standard OMOP Concept IDs:")
     print("  1. Go to https://athena.ohdsi.org -> Login -> 'Vocabulary'.")
     print("  2. Check: SNOMED, RxNorm, LOINC, PPI.")
-    print("  3. Download, unzip, and find 'CONCEPT.csv'.")
-    print("  4. Drag 'CONCEPT.csv' into the 'aou_scout' folder (left sidebar).")
+    print("  3. Download, unzip, and find 'CONCEPT.csv' and 'CONCEPT_ANCESTOR.csv'.")
+    print("  4. Drag them into the 'aou_scout' folder (left sidebar).")
     print("  5. Re-run this cell.")
     print("="*55 + "\n")
 
