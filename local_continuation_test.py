@@ -13,16 +13,35 @@ mock_genai.GenerativeModel.return_value = mock_model
 # Setup mock responses
 def side_effect(history):
     last_msg = history[-1]['parts'][0]
-    if "Type 2 Diabetes" in last_msg and "gender" not in last_msg:
+    
+    # 1. Initial Request -> Bad SQL (ID 123)
+    if "Type 2 Diabetes" in last_msg and "gender" not in last_msg and "verifying" not in last_msg:
         response = MagicMock()
         response.parts = ["SQL: SELECT * FROM person WHERE condition_concept_id = 123"]
         response.text = "SQL: SELECT * FROM person WHERE condition_concept_id = 123"
         return response
+        
+    # 2. Verification Step -> Agent fixes ID (123 -> 456)
+    elif "verifying" in last_msg and "123" in last_msg:
+        response = MagicMock()
+        response.parts = ["SQL: SELECT * FROM person WHERE condition_concept_id = 456"]
+        response.text = "SQL: SELECT * FROM person WHERE condition_concept_id = 456"
+        return response
+
+    # 3. Re-Verification Step -> Agent confirms ID (456)
+    elif "verifying" in last_msg and "456" in last_msg:
+        response = MagicMock()
+        response.parts = ["SQL: SELECT * FROM person WHERE condition_concept_id = 456"]
+        response.text = "SQL: SELECT * FROM person WHERE condition_concept_id = 456"
+        return response
+
+    # 4. Feedback Request -> Add Gender
     elif "gender" in last_msg:
         response = MagicMock()
-        response.parts = ["SQL: SELECT gender_concept_id, * FROM person WHERE condition_concept_id = 123"]
-        response.text = "SQL: SELECT gender_concept_id, * FROM person WHERE condition_concept_id = 123"
+        response.parts = ["SQL: SELECT gender_concept_id, * FROM person WHERE condition_concept_id = 456"]
+        response.text = "SQL: SELECT gender_concept_id, * FROM person WHERE condition_concept_id = 456"
         return response
+        
     return MagicMock(parts=[], text="Error")
 
 mock_model.generate_content.side_effect = side_effect

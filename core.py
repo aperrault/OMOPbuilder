@@ -84,6 +84,9 @@ def agent_loop(user_request, max_turns=5, is_continuation=False):
             {"role": "user", "parts": [f"{system_prompt}\n\nUSER REQUEST: {user_request}"]}
         ]
 
+    # Track previous SQL to detect changes during verification
+    last_sql_candidate = None
+
     for turn in range(max_turns):
         print(f"🤖 Agent: ", end="", flush=True)
         
@@ -187,17 +190,25 @@ def agent_loop(user_request, max_turns=5, is_continuation=False):
                 is_verifying = "Now verifying Concept IDs" in last_user_msg
 
                 if is_verifying:
-                    print(f"\r✅ SUCCESS: SQL Verified.")
-                    print(f"\n{id_report}")
-                    logger.info(f"TURN {turn+1} - SUCCESS (Verified):\n{sql_candidate}")
-                    # Save history for continuation
-                    last_history = history
-                    return sql_candidate
+                    # CRITICAL FIX: Only accept if the SQL hasn't changed.
+                    # If the agent changed the SQL (e.g. fixed an ID), we must re-verify.
+                    if last_sql_candidate and sql_candidate.strip() == last_sql_candidate.strip():
+                        print(f"\r✅ SUCCESS: SQL Verified.")
+                        print(f"\n{id_report}")
+                        logger.info(f"TURN {turn+1} - SUCCESS (Verified):\n{sql_candidate}")
+                        # Save history for continuation
+                        last_history = history
+                        return sql_candidate
+                    else:
+                        print(f"\r🔄 SQL Updated during verification. Re-checking...")
 
                 print(f"\r🔍 Verifying Concept IDs...")
                 print(f"\n{id_report}")
                 logger.info(f"TURN {turn+1} - ID CHECK:\n{id_report}")
                 
+                # Store current SQL for next turn comparison
+                last_sql_candidate = sql_candidate
+
                 history.append({"role": "model", "parts": [text]})
                 history.append({
                     "role": "user", 
