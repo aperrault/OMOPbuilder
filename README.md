@@ -1,47 +1,30 @@
-# 🧬 All of Us Cohort Scout
+# OMOPbuilder
 
-**Stop wasting computation credits on syntax errors.**
+OMOPbuilder generates, validates, and self-corrects BigQuery SQL for the NIH All of Us Researcher Workbench. It uses Google Gemini 3.1 to draft queries from plain English and validates them against a local DuckDB mock of the OMOP CDM schema. No patient data is accessed.
 
-Cohort Scout is an AI agent that generates, validates, and refines SQL queries for the NIH *All of Us* Researcher Workbench. It uses a mock database to ensure your code works.
+## Install
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue) ![DuckDB](https://img.shields.io/badge/Database-DuckDB-yellow) ![OMOP](https://img.shields.io/badge/Standard-OMOP%20v5.3-green)
+```bash
+git clone https://github.com/aperrault/OMOPbuilder.git
+cd OMOPbuilder
+pip install -r requirements.txt
+```
 
-## ⚡️ Why use this?
+Set your Gemini API key as an environment variable:
 
-* **🔒 Privacy First:** No patient data is ever accessed or needed.
-* **🧠 "Thinking" Agent:** Unlike standard chatbots, this agent uses a feedback loop. If it writes bad SQL, the local database catches the error, and the agent fixes itself automatically.
-* **📚 Smart Vocabulary:** Can look up *real* standard Concept IDs (SNOMED, RxNorm, LOINC) to ensure you aren't guessing codes.
+```bash
+export GOOGLE_API_KEY="your-key-here"
+```
 
-## 🛠️ Installation
+You can get a free key from [Google AI Studio](https://aistudio.google.com/).
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/your-username/aou-cohort-scout.git](https://github.com/your-username/aou-cohort-scout.git)
-    cd aou-cohort-scout
-    ```
+## Usage
 
-2.  **Install requirements:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Get a Gemini API Key:**
-    * Get a free key from [Google AI Studio](https://aistudio.google.com/).
-    * Open `core.py` and paste your key:
-        ```python
-        genai.configure(api_key="PASTE_YOUR_KEY_HERE")
-        ```
-
-## 🚀 Usage
-
-**Basic Run:**
-Just run the script. It comes pre-loaded with a test query.
 ```bash
 python core.py
-````
+```
 
-**Custom Query:**
-Edit the bottom of `core.py` to describe your specific cohort:
+Edit the bottom of `core.py` to change the query:
 
 ```python
 if __name__ == "__main__":
@@ -49,43 +32,39 @@ if __name__ == "__main__":
     print(query)
 ```
 
------
+## Precise vs Fuzzy mode
 
-## 💎 Pro Mode: Enable "Precise Lookups"
+By default the agent runs in **Fuzzy mode** -- it generates queries using string matching (`LIKE '%Diabetes%'`). This works without any vocabulary files.
 
-By default, the agent runs in **Fuzzy Mode**, creating queries that match text strings (e.g., `LIKE '%Diabetes%'`). This is safe but slower.
+To enable **Precise mode** (real OMOP concept IDs like `201826`):
 
-To enable **Precise Mode** (where the agent finds exact IDs like `201826`), you need the OMOP Vocabulary:
+1. Go to [Athena OHDSI](https://athena.ohdsi.org/vocabulary/list) and log in.
+2. Select vocabularies: SNOMED, RxNorm, LOINC, PPI.
+3. Download and unzip.
+4. Copy `CONCEPT.csv` and optionally `CONCEPT_ANCESTOR.csv` into the repo root.
 
-1.  Go to [Athena OHDSI](https://athena.ohdsi.org/vocabulary/list).
-2.  Log in and select these vocabularies: **SNOMED**, **RxNorm**, **LOINC**, **PPI** (All of Us Surveys) or any other vocabularies your query might need.
-3.  Download and unzip the bundle.
-4.  Copy the file `CONCEPT.csv` into the root folder of this project.
+The agent detects these files automatically and switches to precise lookups.
 
-**That's it.** The tool will detect the file automatically:
+## How it works
 
-> `✅ Vocabulary Loaded! Agent uses 'Precise Mode'.`
+`agent_loop()` in `core.py` runs a multi-turn loop (up to 5 turns by default):
 
------
+1. Gemini drafts BigQuery SQL from your natural language request.
+2. The SQL is validated against a local DuckDB mock database (`AllOfUSMockDB.py`) using three checks: syntax validation, concept ID verification, and vocabulary lookup.
+3. If validation fails, the errors are fed back to Gemini, which rewrites the query.
+4. Once the query passes all checks, the final SQL is returned.
 
-## 🧠 How It Works
+The mock database loads the OMOP CDM v5.3 schema from `OMOP_CDM_v5_3_1.csv` and translates BigQuery dialect to DuckDB for local validation.
 
-1.  **User Request:** You describe your cohort in plain English.
-2.  **Drafting:** The Agent (Gemini 3 by default) converts this into a BigQuery SQL draft.
-3.  **Simulation:** The tool spins up an in-memory **DuckDB** database that mimics the *All of Us* OMOP schema.
-4.  **Validation:** It tries to "compile" the query.
-      * *If it fails:* The database returns the error (e.g., `Column 'age' not found`). The Agent reads the error and rewrites the code.
-      * *If it succeeds:* It outputs the clean SQL.
-5.  **Output:** You copy the final SQL into your Jupyter Notebook in the Researcher Workbench.
+## Colab
 
-## ⚠️ Limitations
+To run in Google Colab, see `colab_cell.py`. It handles cloning the repo, installing dependencies, detecting vocabulary files, and running the agent with an interactive refinement cell.
 
-  * **Mock Data:** The local database contains the *vocabulary* (concepts) but **zero patient data**. Running the query locally will return an empty result set. This is intentional. The goal is to generate *valid code*, not *results*.
-  * **Dialects:** The tool uses a middleware layer to translate BigQuery-specific functions (like `EXTRACT(YEAR from CURRENT_DATE())`) into DuckDB logic for validation. It is 99% accurate, but extremely niche BigQuery functions might flag false errors.
+## Limitations
+
+- The local database contains vocabulary but no patient data. Queries will return empty results locally -- the goal is to produce valid SQL, not results.
+- A middleware layer translates BigQuery functions to DuckDB equivalents. Most functions are covered, but very niche BigQuery-specific syntax may cause false validation errors.
 
 ## License
 
-MIT License. Free to use for all researchers.
-
-```
-```
+[MIT](LICENSE)

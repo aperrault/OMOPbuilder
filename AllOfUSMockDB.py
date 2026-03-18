@@ -8,6 +8,7 @@ class AllOfUsMockDB:
         self.con = duckdb.connect(':memory:')
         self.vocab_loaded = False
         self.schema_structure = {}
+        self.omop_version = "v5.3.1" # Default fallback
         
         # 1. Initialize Schema
         self._init_schema()
@@ -40,6 +41,14 @@ class AllOfUsMockDB:
         csv_path = self._find_omop_csv()
         if csv_path:
             print(f"📂 Loading Schema from {csv_path}...")
+            # Extract version from filename: OMOP_CDM_v5_3_1.csv -> v5.3.1
+            try:
+                # Remove prefix and extension, replace underscores with dots
+                version_part = csv_path.replace("OMOP_CDM_", "").replace(".csv", "")
+                self.omop_version = version_part.replace("_", ".")
+            except:
+                self.omop_version = csv_path # Fallback to filename if parsing fails
+                
             self._create_tables_from_csv(csv_path)
         else:
             print("⚠️ OMOP CDM CSV not found (looked for 'OMOP_CDM_*.csv').")
@@ -219,7 +228,12 @@ class AllOfUsMockDB:
             report += "✅ Valid Concepts:\n" + "\n".join(found_info) + "\n"
         
         if missing_ids:
-            report += f"⚠️ Unknown IDs (Not in Vocab): {', '.join(missing_ids)}"
+            # report += f"⚠️ Unknown IDs (Not in Vocab): {', '.join(missing_ids)}"
+            report += (
+                f"⛔ CRITICAL ERROR: The Concept IDs {', '.join(missing_ids)} are invalid or hallucinated.\n"
+                f"STOP GUESSING. You do NOT know these IDs.\n"
+                f"ACTION REQUIRED: Call the `LOOKUP: term` tool immediately for the terms associated with these IDs."
+            )
             
         if not found_info and not missing_ids:
              report += "ℹ️ No Concept IDs found in query."

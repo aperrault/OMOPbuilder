@@ -37,7 +37,7 @@ def build_system_prompt(vocab_loaded):
     schema_desc = db.get_schema_description()
     base_prompt = f"""
     You are an expert Data Scientist for the NIH 'All of Us' program.
-    Your goal is to generate BigQuery SQL (OMOP CDM v5.3) for a user's cohort request.
+    Your goal is to generate BigQuery SQL (OMOP CDM {db.omop_version}) for a user's cohort request.
     
     SCHEMA:
 {schema_desc}
@@ -51,6 +51,11 @@ def build_system_prompt(vocab_loaded):
     4. HIERARCHIES: ALWAYS use `concept_ancestor` for ALL clinical codes 
        (Conditions, Drugs, Procedures, AND Measurements). 
        Do not rely on lists of IDs found via lookup.
+    5. TOOL SYNTAX: When using `LOOKUP`, provide ONLY the search term.
+       - BAD: `LOOKUP: Metformin [1503297]`
+       - GOOD: `LOOKUP: Metformin`
+       - BAD: `LOOKUP: Coronary Artery Bypass [Procedure]`
+       - GOOD: `LOOKUP: Coronary Artery Bypass`
     """    
     if vocab_loaded:
         return base_prompt + "\nMODE: PRECISE. Use 'LOOKUP: term' to find IDs. Use standard IDs (Female=8532) where possible."
@@ -63,7 +68,7 @@ def agent_loop(user_request, max_turns=5, is_continuation=False):
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return "ERROR: GOOGLE_API_KEY missing."
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-3-pro-preview') 
+    model = genai.GenerativeModel('gemini-3.1-pro-preview')
     
     # Setup Logging
     logger, log_file = setup_logger()

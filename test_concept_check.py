@@ -55,7 +55,7 @@ class TestConceptIDExtraction(unittest.TestCase):
         self.assertIn("[ANCESTOR]", report)
         
         # 99999 is missing
-        self.assertIn("Unknown IDs", report)
+        self.assertIn("CRITICAL ERROR", report)
         self.assertIn("99999", report)
 
     def test_alias_extraction(self):

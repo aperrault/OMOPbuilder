@@ -19,14 +19,14 @@ except (ImportError, AttributeError):
     os.kill(os.getpid(), 9)
 
 # 3. CLONE OR UPDATE REPO
-if os.path.exists("aou_scout"):
-    os.chdir("aou_scout")
-    print("⬇️ Updating code from Gist...")
+if os.path.exists("OMOPbuilder"):
+    os.chdir("OMOPbuilder")
+    print("⬇️ Updating code...")
     !git pull
 else:
     print("⬇️ Cloning repository...")
-    !git clone https://gist.github.com/1e2a38b932ccb22433be9b065fb3673d.git aou_scout
-    os.chdir("aou_scout")
+    !git clone https://github.com/aperrault/OMOPbuilder.git
+    os.chdir("OMOPbuilder")
 
 # 4. SETUP API KEY
 try:
@@ -51,7 +51,7 @@ else:
     print("  1. Go to https://github.com/OHDSI/CommonDataModel/releases/tag/v5.3.1")
     print("  2. Download 'OMOP_CDM_v5.3.1.zip' (Source code).")
     print("  3. Unzip and find 'OMOP_CDM_v5_3_1.csv'.")
-    print("  4. Drag it into the 'aou_scout' folder (left sidebar).")
+    print("  4. Drag it into the 'OMOPbuilder' folder (left sidebar).")
     print("="*55)
 
 # Check for Vocabulary
@@ -68,7 +68,7 @@ else:
     print("  1. Go to https://athena.ohdsi.org -> Login -> 'Vocabulary'.")
     print("  2. Check: SNOMED, RxNorm, LOINC, PPI.")
     print("  3. Download, unzip, and find 'CONCEPT.csv' and 'CONCEPT_ANCESTOR.csv'.")
-    print("  4. Drag them into the 'aou_scout' folder (left sidebar).")
+    print("  4. Drag them into the 'OMOPbuilder' folder (left sidebar).")
     print("  5. Re-run this cell.")
     print("="*55 + "\n")
 
