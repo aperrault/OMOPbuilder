@@ -1,4 +1,4 @@
-import google.generativeai as genai
+from google import genai
 from AllOfUSMockDB import AllOfUsMockDB
 import os
 import sys
@@ -67,8 +67,7 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
     # Lazy Config
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return "ERROR: GOOGLE_API_KEY missing."
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-3.1-pro-preview')
+    client = genai.Client(api_key=api_key)
     
     # Setup Logging
     logger, log_file = setup_logger()
@@ -99,7 +98,10 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
         logger.info(f"TURN {turn+1} - HISTORY SENT:\n{json.dumps(history, indent=2)}")
         
         try:
-            response = model.generate_content(history)
+            response = client.models.generate_content(
+                model="gemini-3.1-pro-preview",
+                contents=history
+            )
             
             # Check if response was blocked or empty
             if not response.parts:

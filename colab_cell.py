@@ -9,12 +9,10 @@ os.chdir('/content')
 
 # 2. UPDATE & RESTART
 try:
-    import google.generativeai as genai
-    # Check for the configure method to ensure new version
-    if not hasattr(genai, 'configure'): raise ImportError
-except (ImportError, AttributeError):
+    from google import genai
+except ImportError:
     print("🔄 Updating libraries...")
-    !pip install -q -U google-generativeai duckdb
+    !pip install -q -U google-genai duckdb
     print("⚠️ Runtime updated. Restarting session...")
     os.kill(os.getpid(), 9)
 
