@@ -32,14 +32,18 @@ if __name__ == "__main__":
     print(query)
 ```
 
-## Precise vs Fuzzy mode
+## Schema and vocabulary files
+
+The agent needs the OMOP CDM schema definition to validate SQL. Download `OMOP_CDM_v5_3_1.csv` from the [OHDSI CommonDataModel v5.3.1 release](https://github.com/OHDSI/CommonDataModel/releases/tag/v5.3.1) and place it in the repo root.
+
+### Precise vs Fuzzy mode
 
 By default the agent runs in **Fuzzy mode** -- it generates queries using string matching (`LIKE '%Diabetes%'`). This works without any vocabulary files.
 
 To enable **Precise mode** (real OMOP concept IDs like `201826`):
 
 1. Go to [Athena OHDSI](https://athena.ohdsi.org/vocabulary/list) and log in.
-2. Select vocabularies: SNOMED, RxNorm, LOINC, PPI.
+2. Select vocabularies: SNOMED, RxNorm, LOINC, PPI. Optionally add UCUM (Units), ATC (Drug Classes), and CPT4/ICD10CM (Billing).
 3. Download and unzip.
 4. Copy `CONCEPT.csv` and optionally `CONCEPT_ANCESTOR.csv` into the repo root.
 
@@ -56,9 +60,11 @@ The agent detects these files automatically and switches to precise lookups.
 
 The mock database loads the OMOP CDM v5.3 schema from `OMOP_CDM_v5_3_1.csv` and translates BigQuery dialect to DuckDB for local validation.
 
-## Colab
+## Colab / Jupyter
 
-To run in Google Colab, see `colab_cell.py`. It handles cloning the repo, installing dependencies, detecting vocabulary files, and running the agent with an interactive refinement cell.
+Open `aou_scout.ipynb` in Google Colab (or any Jupyter environment). It handles cloning the repo, installing dependencies, detecting schema/vocabulary files, and running the agent. A second cell lets you iteratively refine the generated SQL by pasting errors or change requests.
+
+`colab_cell.py` contains the same cells as plain Python for reference.
 
 ## Limitations
 

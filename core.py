@@ -62,7 +62,7 @@ def build_system_prompt(vocab_loaded):
     else:
         return base_prompt + "\nMODE: FUZZY. Do NOT guess IDs. Use `REGEXP_CONTAINS(concept_name, '(?i)term')`."
 
-def agent_loop(user_request, max_turns=5, is_continuation=False):
+def agent_loop(user_request, max_turns=10, is_continuation=False):
     global last_history
     # Lazy Config
     api_key = os.environ.get("GOOGLE_API_KEY")
