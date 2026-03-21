@@ -2,10 +2,17 @@ import importlib
 import sys
 from unittest.mock import MagicMock
 
+# Import real types before mocking so Content/Part work correctly
+from google.genai import types
+
 # Mock genai before importing core to avoid API key check issues or network calls
 mock_genai = MagicMock()
+# Preserve real types so core.py can create proper Content/Part objects
+mock_genai.types = types
 sys.modules["google.genai"] = mock_genai
 sys.modules["google"] = MagicMock(genai=mock_genai)
+# Also register the types submodule so `from google.genai import types` works
+sys.modules["google.genai.types"] = types
 
 # Mock the client and model response
 mock_client = MagicMock()
@@ -16,9 +23,13 @@ mock_model = mock_client.models
 INITIAL_SQL = "SELECT * FROM condition_occurrence WHERE condition_concept_id = 201826"
 REVISED_SQL = "SELECT co.*, p.gender_concept_id FROM condition_occurrence co JOIN person p ON co.person_id = p.person_id WHERE co.condition_concept_id = 201826"
 
+# Helper to extract text from a Content object
+def get_text(content):
+    return content.parts[0].text
+
 # Setup mock responses
 def side_effect(*, model=None, contents=None, **kwargs):
-    last_msg = contents[-1]['parts'][0]
+    last_msg = get_text(contents[-1])
 
     # 1. Initial request -> return SQL
     if "USER REQUEST:" in last_msg:
@@ -31,8 +42,8 @@ def side_effect(*, model=None, contents=None, **kwargs):
     if "verifying" in last_msg.lower():
         response = MagicMock()
         # Check if we're in the continuation flow (gender query)
-        has_gender = any("gender" in str(m['parts'][0]).lower() and "USER FEEDBACK:" in str(m['parts'][0])
-                        for m in contents if m['role'] == 'user')
+        has_gender = any("gender" in get_text(m).lower() and "USER FEEDBACK:" in get_text(m)
+                        for m in contents if m.role == 'user')
         sql = REVISED_SQL if has_gender else INITIAL_SQL
         response.parts = [f"SQL: {sql}"]
         response.text = f"SQL: {sql}"
@@ -88,8 +99,8 @@ print(f"History length: {len(core.last_history)}")
 assert len(core.last_history) > 0, "History should be preserved for continuation"
 
 for i, msg in enumerate(core.last_history):
-    role = msg['role']
-    content = str(msg['parts'][0])[:60] + "..."
+    role = msg.role
+    content = get_text(msg)[:60] + "..."
     print(f"{i+1}. {role}: {content}")
 
 print("\n✅ All assertions passed!")

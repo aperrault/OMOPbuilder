@@ -1,4 +1,5 @@
 from google import genai
+from google.genai import types
 from AllOfUSMockDB import AllOfUsMockDB
 import os
 import sys
@@ -77,7 +78,7 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
         print(f"\n🔄 Continuing Session with feedback: '{user_request}'\n")
         history = last_history
         # Append the user's feedback to the existing history
-        history.append({"role": "user", "parts": [f"USER FEEDBACK: {user_request}"]})
+        history.append(types.Content(role="user", parts=[types.Part(text=f"USER FEEDBACK: {user_request}")]))
     else:
         print(f"\n🚀 Starting Agent for: '{user_request}'\n")
         system_prompt = build_system_prompt(db.vocab_loaded)
@@ -85,7 +86,7 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
         logger.info(f"USER REQUEST:\n{user_request}")
         
         history = [
-            {"role": "user", "parts": [f"{system_prompt}\n\nUSER REQUEST: {user_request}"]}
+            types.Content(role="user", parts=[types.Part(text=f"{system_prompt}\n\nUSER REQUEST: {user_request}")])
         ]
 
     # Track previous SQL to detect changes during verification
@@ -95,7 +96,11 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
         print(f"🤖 Agent: ", end="", flush=True)
         
         # Log History before sending
-        logger.info(f"TURN {turn+1} - HISTORY SENT:\n{json.dumps(history, indent=2)}")
+        try:
+            history_log = [{"role": str(c.role), "parts": [str(p.text) for p in c.parts]} for c in history]
+            logger.info(f"TURN {turn+1} - HISTORY SENT:\n{json.dumps(history_log, indent=2)}")
+        except Exception:
+            logger.info(f"TURN {turn+1} - HISTORY SENT: ({len(history)} messages)")
         
         try:
             response = client.models.generate_content(
@@ -143,8 +148,8 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
             
             # IMPORTANT: Only append the LOOKUP commands to history, ignoring any hallucinated follow-up text
             clean_model_text = "\n".join(lookup_commands)
-            history.append({"role": "model", "parts": [clean_model_text]})
-            history.append({"role": "user", "parts": [f"TOOL RESULTS:\n{final_result}"]})
+            history.append(types.Content(role="model", parts=[types.Part(text=clean_model_text)]))
+            history.append(types.Content(role="user", parts=[types.Part(text=f"TOOL RESULTS:\n{final_result}")]))
             continue
 
         # Tool: SQL Validation
@@ -193,7 +198,8 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
                 print(f"\r✅ SUCCESS: Valid SQL generated.      ") # Overwrite
                 
                 # Check if we are already in a verification loop
-                last_user_msg = history[-1]["parts"][0] if history else ""
+                last_entry = history[-1] if history else None
+                last_user_msg = last_entry.parts[0].text if last_entry else ""
                 is_verifying = "Now verifying Concept IDs" in last_user_msg
 
                 if is_verifying:
@@ -216,25 +222,19 @@ def agent_loop(user_request, max_turns=10, is_continuation=False):
                 # Store current SQL for next turn comparison
                 last_sql_candidate = sql_candidate
 
-                history.append({"role": "model", "parts": [text]})
-                history.append({
-                    "role": "user", 
-                    "parts": [f"SQL Validated. Now verifying Concept IDs:\n{id_report}\n\nIf these concepts are correct, output the SQL again. If any are incorrect (e.g. wrong domain or specific concept), please fix the SQL."]
-                })
+                history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+                history.append(types.Content(role="user", parts=[types.Part(text=f"SQL Validated. Now verifying Concept IDs:\n{id_report}\n\nIf these concepts are correct, output the SQL again. If any are incorrect (e.g. wrong domain or specific concept), please fix the SQL.")]))
                 continue
             else:
                 print(f"\r❌ VALIDATION ERROR: {error_msg}")
                 print(f"\n{id_report}") # Show ID report even on error
                 logger.warning(f"TURN {turn+1} - VALIDATION ERROR:\n{error_msg}")
-                history.append({"role": "model", "parts": [text]})
-                history.append({
-                    "role": "user", 
-                    "parts": [f"Database Error: {error_msg}.\n\nAlso, here is a check on the Concept IDs you used:\n{id_report}\n\nIMPORTANT: Ensure you are using standard BigQuery syntax. Return ONLY the corrected SQL."]
-                })
-        
+                history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+                history.append(types.Content(role="user", parts=[types.Part(text=f"Database Error: {error_msg}.\n\nAlso, here is a check on the Concept IDs you used:\n{id_report}\n\nIMPORTANT: Ensure you are using standard BigQuery syntax. Return ONLY the corrected SQL.")]))
+
         else:
-            history.append({"role": "model", "parts": [text]})
-            history.append({"role": "user", "parts": ["Please output a command: either 'LOOKUP: term' or 'SQL: query'."]})
+            history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+            history.append(types.Content(role="user", parts=[types.Part(text="Please output a command: either 'LOOKUP: term' or 'SQL: query'.")]))
 
     print(f"\n🛑 STOPPING: Reached maximum turn limit ({max_turns}).")
     logger.error("STOPPING: Reached maximum turn limit.")
